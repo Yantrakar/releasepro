@@ -1,0 +1,171 @@
+name: Release
+
+# Run by hand on main ("Run workflow", or `releasepro run --as LOGIN`), never
+# by a tag. The version in src/releasepro/VERSION, the only place it is
+# written, must be X.Y.Z; tag vX.Y.Z must not exist yet; CHANGELOG.md must
+# have the version's section. CI runs first. One build then feeds the GitHub
+# release, which gets the release notes as its body and the announcement
+# draft as an asset, and then PyPI. Each publishing job waits for its
+# environment's reviewer. Spec: docs/spec/00-product.md.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Runs on main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: The version is X.Y.Z and the changelog has its section
+        id: version
+        env:
+          PYTHONPATH: src
+        run: |
+          v=$(python -m releasepro version)
+          python -m releasepro notes --check "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+      - name: The tag is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --silent 2>err; then
+            echo "tag $TAG already exists"; exit 1
+          fi
+          grep -q "HTTP 404" err || { cat err; exit 1; }
+
+  ci:
+    needs: check
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  build:
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install build
+      - run: python -m build --outdir dist .
+      - name: The wheel installs and names the version
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install dist/*.whl
+          test "$("$RUNNER_TEMP/smoke/bin/releasepro" --version)" = "releasepro $VERSION"
+      - run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: The release notes and the announcement draft
+        env:
+          PYTHONPATH: src
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          python -m releasepro notes "$VERSION" --write notes
+          cat notes/ANNOUNCEMENT.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes/
+          if-no-files-found: error
+
+  github:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+          path: notes
+      # A tag made with the job's own token starts no other workflow. Re-running a failed job must
+      # not fail on what the first attempt already did: a tag at this commit and a release are kept.
+      - name: Create the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object | .type + " " + .sha' >ref 2>err; then
+            read -r type sha < ref
+            if [ "$type" = tag ]; then
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
+            fi
+            if [ "$sha" = "$GITHUB_SHA" ]; then
+              echo "tag $TAG already points at $GITHUB_SHA"; exit 0
+            fi
+            echo "tag $TAG exists at $sha, not at $GITHUB_SHA"; exit 1
+          fi
+          grep -q "HTTP 404" err || { cat err; exit 1; }
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$TAG" -f message="releasepro $VERSION" \
+                -f object="$GITHUB_SHA" -f type=commit --jq .sha)
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$sha" --silent
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>err; then
+            gh release upload "$TAG" dist/* notes/ANNOUNCEMENT.md --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes/RELEASE_NOTES.md
+          else
+            grep -q "release not found" err || { cat err; exit 1; }
+            gh release create "$TAG" dist/* notes/ANNOUNCEMENT.md --repo "$GITHUB_REPOSITORY" --title "$TAG" \
+              --notes-file notes/RELEASE_NOTES.md --verify-tag
+          fi
+
+  # PyPI trusts this file and the pypi environment as a trusted publisher, so no token is stored.
+  # It must stay in this file: PyPI does not accept a workflow from another repo (spec 00, section 4).
+  pypi:
+    needs: github
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/releasepro/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: rm dist/SHA256SUMS
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
