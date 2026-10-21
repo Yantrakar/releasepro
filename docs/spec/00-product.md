@@ -1,6 +1,7 @@
 # 00 — releasepro: one gated release run for any repo
 
-Written 2026-10-21. Status: 0.1.0 being built (section 10). Source: the release pipeline of
+Written 2026-10-21. Status: 0.1.0 built; 0.2.0 specified, not built (section 10 and
+[spec 01](01-local-and-azure.md)). Source: the release pipeline of
 [Yantrakar/gitpro](https://github.com/Yantrakar/gitpro) at main 24cf9f9 (release 0.4.3),
 described in its `docs/spec/20-release.md`. Facts about other services were checked on
 2026-10-21 and carry their source. Anything not checked says **unverified**.
@@ -24,6 +25,13 @@ person must decide.
 
 The promise: **a version is announced only once it can be installed from every channel,
 and nothing is published without a person's yes.**
+
+From 0.2.0 there is a second way to run it, **local mode** (`[release] mode = "local"`),
+for a repo that cannot have GitHub environments or has no version file. releasepro then
+runs check, build, deploy and verify itself on the person's machine, the person's yes at
+the terminal is the gate, and a release is named by its commit. Its first channel is Azure
+Static Web Apps. [Spec 01](01-local-and-azure.md) defines it. Everything else in this
+file describes the default, `mode = "github"`.
 
 ## 2. Where it comes from
 
@@ -65,6 +73,10 @@ These are carried over from gitpro spec 20, where they held for releases 0.4.1 t
    inside them are stamped at build time and never committed.
 6. **Checked, not assumed.** The run is done when each channel answers that it lists the
    version, not when the jobs end.
+
+In local mode the rules hold as spec 01, section 3 says. Rule 2 needs no exception there:
+the SWA CLI fetches the deployment token itself, and releasepro never reads it (spec 01,
+section 5.2).
 
 ## 4. What can be shared across repos (checked 2026-10-21)
 
@@ -156,6 +168,10 @@ url = "https://example.dev/"
 names_version = '"softwareVersion": "{v}"'   # what the page must contain
 ```
 
+From 0.2.0, `[release] mode` (`"github"` by default) and `[release] version` (`"file"` by
+default) choose how a repo is released. Local mode's keys and the
+`[channel.azure-static-web-apps]` table are in spec 01, section 2.
+
 ### 5.4 The CLI `releasepro`
 
 | Command | Does | Changes anything? |
@@ -170,6 +186,9 @@ names_version = '"softwareVersion": "{v}"'   # what the page must contain
 - Every command has `--json`.
 - Exit codes: 0 done, 1 a check failed or a job failed, 2 usage or setup error, 130
   stopped.
+- In local mode (0.2.0), `run [--yes] [--dry-run]` and `verify [COMMIT]` work on a
+  commit, and `version` and `notes` are setup errors (spec 01, sections 3, 6 and 7). The
+  exit codes stay.
 - The gh account: `--as LOGIN`, without switching the global gh account, through gitpro's
   `forge` (decision 3). Every gh call goes through `forge.run(Account("github.com", "gh",
   LOGIN), …)`, as in gitpro's `release.py`:
@@ -248,8 +267,11 @@ may reword the draft, using only what the changelog says (section 5.6).
   (section 5.7);
 - posting the announcement anywhere;
 - channels other than the six in section 2 (npm, crates.io, container registries,
-  Homebrew);
-- other CI systems than GitHub Actions.
+  Homebrew), except Azure Static Web Apps in local mode (spec 01);
+- creating anything in Azure (an account, a resource group, a Static Web App) or in
+  GitHub (an environment, its reviewers); a person does that (spec 01, section 9);
+- other CI systems than GitHub Actions. Local mode runs on the person's machine, not in
+  CI.
 
 ## 7. Prior art (each tool's docs, 2026-10-21)
 
@@ -292,6 +314,21 @@ may reword the draft, using only what the changelog says (section 5.6).
 7. Release notes and marketing notes: **releasepro makes both**, asked for on 2026-10-21
    ("releasepro should create rlease notes, marketing notes available"). Made from the
    changelog, published with the release, posted by a person (section 5.7).
+8. Local mode and Azure Static Web Apps: **in 0.2.0**, the user, 2026-10-21. Why: a
+   private repo on GitHub Free can have no environment and no required reviewer
+   (docs.github.com), and a static website has no version file. So:
+   - `[release] mode = "local"` and `version = "commit"`; the defaults keep 0.1.0's
+     behaviour;
+   - the gate is the person's yes at the terminal, or their `--yes`. It has no second
+     person and no audit trail on GitHub;
+   - the channel deploys with the SWA CLI pinned at 2.0.10, signed in through the
+     person's `az login` session. The SWA CLI fetches the deployment token itself, so
+     rule 2 holds with no exception. Confirmed from the SWA CLI source at tag `v2.0.10`,
+     not yet by a run;
+   - the shared workflows, the template, `init`, `doctor` and gitpro switching move to a
+     later release.
+
+   Spec 01 has the details and the sources.
 
 ## 9. Steps
 
@@ -306,7 +343,9 @@ may reword the draft, using only what the changelog says (section 5.6).
    publish the same files to the same six channels, in the same order.
 6. Publish releasepro (decision 5).
 
-## 10. Release 0.1.0
+## 10. Releases
+
+### 0.1.0
 
 0.1.0 is gitpro's release tool as it was at 0.4.3, made generic, and it releases
 releasepro itself. The owner asked for "a functional version as it is today"
@@ -317,5 +356,15 @@ releasepro itself. The owner asked for "a functional version as it is today"
 - the `verify` action, `action.yml` at the root;
 - `AGENTS.md`, `CLAUDE.md` and the skill.
 
-Left for 0.2.0: `init`, `doctor`, the shared channel workflows (section 5.1), the
-template (section 5.2), and gitpro switching to releasepro (section 9, step 5).
+### 0.2.0
+
+0.2.0 holds local mode and the Azure Static Web Apps channel (decision 8,
+[spec 01](01-local-and-azure.md)):
+- `[release] mode = "local"` and `version = "commit"`, with github mode unchanged;
+- `releasepro run` in local mode: check, build in a detached worktree of HEAD, the
+  person's yes, deploy, verify; `--dry-run`;
+- `releasepro verify [COMMIT]` in local mode;
+- the `azure-static-web-apps` channel.
+
+Left for a later release: `init`, `doctor`, the shared channel workflows (section 5.1),
+the template (section 5.2), and gitpro switching to releasepro (section 9, step 5).
