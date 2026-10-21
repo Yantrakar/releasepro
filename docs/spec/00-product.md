@@ -1,6 +1,6 @@
 # 00 — releasepro: one gated release run for any repo
 
-Written 2026-10-21. Status: draft spec, nothing built. Source: the release pipeline of
+Written 2026-10-21. Status: 0.1.0 being built (section 10). Source: the release pipeline of
 [Yantrakar/gitpro](https://github.com/Yantrakar/gitpro) at main 24cf9f9 (release 0.4.3),
 described in its `docs/spec/20-release.md`. Facts about other services were checked on
 2026-10-21 and carry their source. Anything not checked says **unverified**.
@@ -11,7 +11,9 @@ releasepro takes a repo from "the version file says X.Y.Z" to "every channel lis
 in one GitHub Actions run:
 - a person approves each channel at its gate;
 - no token is stored anywhere;
-- the announcement goes last.
+- the announcement goes last;
+- the release notes and a draft announcement are written from the repo's changelog, and
+  are ready when the version is.
 
 A repo can use it in two ways:
 - **refer**: call releasepro's workflows by path at a pinned commit or tag;
@@ -162,6 +164,8 @@ names_version = '"softwareVersion": "{v}"'   # what the page must contain
 | `doctor` | checks the setup it can read: environments exist with a reviewer, variables are set, the workflow file is the one registered | no |
 | `run [--yes] [--run ID]` | gitpro's `release.py` steps 1 to 5 | starts the run and approves gates |
 | `verify X.Y.Z` | step 5 alone: which channels list the version | no |
+| `version` | prints X.Y.Z from the version file, for a workflow's `check` job | no |
+| `notes X.Y.Z [--check] [--write DIR]` | the release notes and the announcement draft (section 5.7) | `--write` writes two files in DIR |
 
 - Every command has `--json`.
 - Exit codes: 0 done, 1 a check failed or a job failed, 2 usage or setup error, 130
@@ -180,7 +184,7 @@ The GitHub Marketplace lists one root `action.yml` per repo and no reusable work
 (docs.github.com, "Publishing actions in GitHub Marketplace" and "Reusing workflow
 configurations"). The listed action is `verify`:
 - it takes a version and the channels;
-- it fails until each channel lists the version, or a time limit passes.
+- it passes once each channel lists the version, and fails if one does not when a time limit passes.
 
 None of the release tools surveyed on 2026-10-21 documents this check (section 7).
 
@@ -201,10 +205,48 @@ and each tool's docs, checked 2026-10-21.
 `init` offers to add a short section to the using repo's own `AGENTS.md`, so its agents
 know a release goes through `releasepro run`.
 
+### 5.7 Release notes and marketing notes
+
+Both are made from the repo's changelog, which the owner writes. releasepro adds no
+claim of its own: every sentence is the owner's, copied from the changelog or from
+`releasepro.toml`. What releasepro adds is fixed text with no claim in it: the name and
+the version, the headings ("Get it", the changelog's `###` headings), one install line
+per channel, and the links.
+
+The changelog section for X.Y.Z:
+- the file is `[notes] changelog`, `CHANGELOG.md` by default;
+- the section starts at a level-2 heading whose first word is `X.Y.Z` or `[X.Y.Z]`, as
+  Keep a Changelog writes it (`## 0.4.3 (2026-10-21)`, `## [1.0.0] - 2026-01-02`);
+- it ends at the next level-2 heading;
+- a missing or empty section stops the release before anything is written:
+  `notes --check` runs in the `check` job, and `run` checks it before it starts or
+  follows a run (`--run ID` too), together with a `short_limit` too small for the name,
+  the version and the link (exit 2).
+
+The two files `notes --write DIR` writes:
+
+| File | Content | Where it goes |
+|---|---|---|
+| `RELEASE_NOTES.md` | the changelog section as written, then a "Get it" list with one line per channel that is on | the body of the GitHub release (`gh release create --notes-file`) |
+| `ANNOUNCEMENT.md` | a draft post: a short text of at most `[notes] short_limit` characters (280 by default, every character counted, links in full) and a long text | a release asset |
+
+The announcement is built from:
+- `[notes] summary`, one line the owner writes about the project;
+- the first sentence of each top-level bullet in the changelog section, in order, under
+  its `###` heading in the long text; the short text takes as many whole sentences as fit;
+- the install lines and the links (the GitHub release, `[channel.site] url`).
+
+Releasing the version doesn't post it anywhere. `run` prints the short text once every
+channel lists the version, and says it is ready to post; it names `ANNOUNCEMENT.md` as
+being on the release only when `[channel.github] assets` lists it. When a channel does
+not list the version, nothing is offered for posting. Posting is the person's. An agent
+may reword the draft, using only what the changelog says (section 5.6).
+
 ## 6. Out of scope for release 1
 
-- choosing the next version, writing the changelog or release notes beyond GitHub's
-  generated notes;
+- choosing the next version or writing the changelog; the notes are made from it
+  (section 5.7);
+- posting the announcement anywhere;
 - channels other than the six in section 2 (npm, crates.io, container registries,
   Homebrew);
 - other CI systems than GitHub Actions.
@@ -247,6 +289,9 @@ know a release goes through `releasepro run`.
    name until it is actually used to publish" (docs.pypi.org, "Creating a PyPI project with
    a Trusted Publisher", checked 2026-10-21).
 6. The GitHub repo: created public on 2026-10-21, github.com/Yantrakar/releasepro.
+7. Release notes and marketing notes: **releasepro makes both**, asked for on 2026-10-21
+   ("releasepro should create rlease notes, marketing notes available"). Made from the
+   changelog, published with the release, posted by a person (section 5.7).
 
 ## 9. Steps
 
@@ -260,3 +305,17 @@ know a release goes through `releasepro run`.
 5. Switch gitpro to releasepro on a branch. The next gitpro release through it must
    publish the same files to the same six channels, in the same order.
 6. Publish releasepro (decision 5).
+
+## 10. Release 0.1.0
+
+0.1.0 is gitpro's release tool as it was at 0.4.3, made generic, and it releases
+releasepro itself. The owner asked for "a functional version as it is today"
+(2026-10-21). It contains:
+- `releasepro run`, `verify` and `notes`, driven by `releasepro.toml`;
+- releasepro's own `release.yml`: check, ci, build, github (gate `release`), pypi
+  (gate `pypi`), with no other channel;
+- the `verify` action, `action.yml` at the root;
+- `AGENTS.md`, `CLAUDE.md` and the skill.
+
+Left for 0.2.0: `init`, `doctor`, the shared channel workflows (section 5.1), the
+template (section 5.2), and gitpro switching to releasepro (section 9, step 5).
