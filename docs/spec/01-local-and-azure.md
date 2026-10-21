@@ -61,8 +61,8 @@ The keys of `[release]`:
 - In local mode, `build` is required and holds at least one command. `marker` is a path
   relative to the output, `release.txt` by default.
 - In local mode these keys are a setup error, because nothing would use them: `repo`,
-  `version_file`, `workflow`, `workflow_name`, `tag`, `[notes]`, and every channel other
-  than `azure-static-web-apps`. No step is skipped without saying so.
+  `name`, `version_file`, `workflow`, `workflow_name`, `tag`, `[notes]`, `[gates]`, and
+  every channel other than `azure-static-web-apps`. No step is skipped without saying so.
 - In github mode, `build`, `marker` and `[channel.azure-static-web-apps]` are a setup error.
 - `preflight` and `build` are commands. Each is split as a shell would split it and run
   without a shell, as `preflight` is in 0.1.0.

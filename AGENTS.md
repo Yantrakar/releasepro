@@ -3,7 +3,10 @@
 releasepro runs a repo's release in one GitHub Actions run: a person says yes at
 each channel's gate, no token is stored, every channel is checked until it lists the
 version, and the release notes and an announcement draft come from the changelog.
-The spec is docs/spec/00-product.md; read it before changing behaviour.
+In local mode it runs every step on the person's machine instead, with their yes at
+the terminal as the gate, and deploys a commit to Azure Static Web Apps.
+The specs are docs/spec/00-product.md and docs/spec/01-local-and-azure.md; read them
+before changing behaviour.
 
 ## Working in this repo
 

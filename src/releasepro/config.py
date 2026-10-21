@@ -1,11 +1,11 @@
-"""releasepro.toml: what a repo releases and where (spec 00, section 5.3)."""
+"""releasepro.toml: what a repo releases and where (spec 00, section 5.3; local mode: spec 01, section 2)."""
 from __future__ import annotations
 
 import re
 import shlex
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
 if sys.version_info >= (3, 11):
@@ -16,6 +16,13 @@ else:  # pragma: no cover - Python 3.9 and 3.10
 FILE = "releasepro.toml"
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 REPO_RE = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
+
+MODES = {"github": "file", "local": "commit"}         # the two pairs 0.2.0 accepts (spec 01, section 2)
+LOCAL_ONLY = ("build", "marker")
+NOT_LOCAL = ("repo", "name", "version_file", "workflow", "workflow_name", "tag")
+GITHUB_CHANNELS = ("github", "pypi", "vscode-marketplace", "openvsx", "mcp-registry", "site")
+SWA = "azure-static-web-apps"
+SWA_CLI = "2.0.10"            # the SWA CLI version spec 01, section 5 was checked against
 
 
 def fill(text: str, v: str) -> str:
@@ -61,6 +68,19 @@ class Notes:
 
 
 @dataclass(frozen=True)
+class StaticWebApp:
+    app: str
+    resource_group: str
+    subscription: Optional[str]   # a sign-in hint: az login must be in it when set
+    tenant: Optional[str]
+    swa_cli: str
+    output: str                   # relative to the root of the worktree
+    wait: int                     # seconds for every host to serve the new marker
+    headers: Dict[str, str]       # name (any case) to exact value
+    not_found: List[str]          # paths that must answer 404
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     repo: str
@@ -79,6 +99,11 @@ class Config:
     site: Optional[Site] = None
     notes: Optional[Notes] = None
     gates: Dict[str, str] = field(default_factory=dict)
+    mode: str = "github"          # "local": spec 01
+    version_kind: str = "file"    # [release] version: "file" or "commit"
+    build: List[List[str]] = field(default_factory=list)
+    marker: str = "release.txt"   # relative to the output
+    swa: Optional[StaticWebApp] = None
 
     def tag_of(self, v: str) -> str:
         return fill(self.tag, v)
@@ -139,6 +164,23 @@ class _Table:
             raise SetupError(f"{self.where}: unknown key {', '.join(extra)}")
 
 
+def _commands(t: _Table, key: str, default: Optional[List[str]] = None, required: bool = False) -> List[List[str]]:
+    """Commands split as a shell would split them, to run without a shell; blank ones dropped."""
+    given = t.get(key, list, default, required=required)
+    try:
+        return [shlex.split(c) for c in given if c.strip()]
+    except ValueError as e:
+        raise SetupError(f"{t.where} {key}: {e}") from None
+
+
+def _inside(where: str, value: str, what: str) -> str:
+    """value, a relative path that stays inside its folder, or SetupError."""
+    p = PurePosixPath(value)
+    if not value.strip() or p.is_absolute() or ".." in p.parts or p == PurePosixPath("."):
+        raise SetupError(f"{where} must be a path inside {what}, not {value!r}")
+    return value
+
+
 def load(path: Path) -> Config:
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -148,17 +190,27 @@ def load(path: Path) -> Config:
         raise SetupError(f"{path.name}: {e}") from None
     top = _Table(path.name, raw)
     rel = _Table("[release]", top.get("release", dict, required=True))
+    mode = rel.get("mode", str, "github")
+    if mode not in MODES:
+        raise SetupError(f'[release] mode must be "github" or "local", not {mode!r}')
+    kind = rel.get("version", str, "file")
+    if kind not in ("file", "commit"):
+        raise SetupError(f'[release] version must be "file" or "commit", not {kind!r}')
+    if MODES[mode] != kind:
+        raise SetupError(f'[release] mode = "{mode}" goes with version = "{MODES[mode]}", not "{kind}": '
+                         'releasepro accepts "github" with "file" and "local" with "commit"')
+    if mode == "local":
+        return _load_local(path, raw, top, rel)
+    for key in LOCAL_ONLY:
+        if key in rel.data:
+            raise SetupError(f'[release] {key} is only for mode = "local"')
     repo = rel.get("repo", str, required=True)
     if not REPO_RE.fullmatch(repo):
         raise SetupError(f"[release] repo must be OWNER/NAME, not {repo!r}")
     tag = rel.get("tag", str, "v{v}")
     if "{v}" not in tag:
         raise SetupError("[release] tag must contain {v}")
-    pre = rel.get("preflight", list, ["gitpro why"])
-    try:
-        preflight = [shlex.split(c) for c in pre if c.strip()]
-    except ValueError as e:
-        raise SetupError(f"[release] preflight: {e}") from None
+    preflight = _commands(rel, "preflight", ["gitpro why"])
     cfg = dict(
         root=path.parent, repo=repo, name=rel.get("name", str, repo.split("/")[1]),
         version_file=rel.get("version_file", str, required=True), branch=rel.get("branch", str, "main"),
@@ -168,6 +220,8 @@ def load(path: Path) -> Config:
     rel.done()
 
     channels = _Table("[channel]", top.get("channel", dict, {}))
+    if SWA in channels.data:
+        raise SetupError(f'[channel.{SWA}] is only for mode = "local"')
     gh = _Table("[channel.github]", channels.get("github", dict, {}))
     cfg["assets"] = gh.get("assets", list, [])
     gh.done()
@@ -211,6 +265,63 @@ def load(path: Path) -> Config:
     gates = _Table("[gates]", top.get("gates", dict, {}))
     cfg["gates"] = {k: gates.get(k, str) for k in list(gates.data)}
     gates.done()
+    top.done()
+    return Config(**cfg)
+
+
+def _load_local(path: Path, raw: dict, top: _Table, rel: _Table) -> Config:
+    """mode = "local" (spec 01, section 2): keys that nothing would use are refused, not skipped."""
+    for key in NOT_LOCAL:
+        if key in rel.data:
+            raise SetupError(f'[release] {key} is not used in mode = "local"')
+    cfg = dict(
+        root=path.parent, repo="", name=path.parent.name, version_file="",
+        branch=rel.get("branch", str, "main"), workflow="", workflow_name="", tag="",
+        preflight=_commands(rel, "preflight", ["gitpro why"]), assets=[], mode="local", version_kind="commit",
+        build=_commands(rel, "build", required=True),
+        marker=_inside("[release] marker", rel.get("marker", str, "release.txt"), "the output"),
+    )
+    if not cfg["build"]:
+        raise SetupError('[release] build must hold at least one command in mode = "local"')
+    rel.done()
+    if "notes" in raw:
+        raise SetupError('[notes] is not used in mode = "local": the notes are made from the changelog section '
+                         "for X.Y.Z, and a commit has none")
+    if "gates" in raw:
+        raise SetupError('[gates] is not used in mode = "local": its one question is the deploy (spec 01, section 4)')
+    channels = _Table("[channel]", top.get("channel", dict, {}))
+    for key in channels.data:
+        if key in GITHUB_CHANNELS:
+            raise SetupError(f'[channel.{key}] is not used in mode = "local"')
+    if SWA not in channels.data:
+        raise SetupError(f'[channel.{SWA}] is required in mode = "local"')
+    t = _Table(f"[channel.{SWA}]", channels.get(SWA, dict))
+    app = t.get("app", str, required=True)
+    if not app or app.startswith("-") or "'" in app or "\\" in app:
+        raise SetupError(f"{t.where} app must be a Static Web App name, not {app!r}")
+    group = t.get("resource_group", str, required=True)
+    if not group or group.startswith("-"):
+        raise SetupError(f"{t.where} resource_group must be a resource group name, not {group!r}")
+    swa_cli = t.get("swa_cli", str, required=True)
+    if swa_cli != SWA_CLI:
+        raise SetupError(f'{t.where} swa_cli must be "{SWA_CLI}", the version releasepro was checked against, '
+                         f"not {swa_cli!r}")
+    output = _inside(f"{t.where} output", t.get("output", str, required=True), "the repo")
+    wait = t.get("wait", int, 180)
+    if wait < 0:
+        raise SetupError(f"{t.where} wait must be 0 or more")
+    headers = t.get("headers", dict, {})
+    for name, value in headers.items():
+        if not isinstance(value, str):
+            raise SetupError(f"{t.where} headers: {name} must be a string")
+    not_found = t.get("not_found", list, [])
+    for p in not_found:
+        if not p.startswith("/"):
+            raise SetupError(f"{t.where} not_found: {p!r} must start with /")
+    cfg["swa"] = StaticWebApp(app, group, t.get("subscription", str), t.get("tenant", str), swa_cli, output, wait,
+                              dict(headers), list(not_found))
+    t.done()
+    channels.done()
     top.done()
     return Config(**cfg)
 
