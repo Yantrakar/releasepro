@@ -224,7 +224,7 @@ know a release goes through `releasepro run`.
    github.com/Yantrakar. USPTO serial 78027782, RELEASEPRO for release-automation
    software, is Dead, Cancelled. Serial 50160335, RELEASEPRO for massage apparatus
    (class 10), is live and pending.
-2. License (gitpro: MIT).
+2. License: **MIT**, chosen 2026-10-21, as gitpro.
 3. The gh account: depend on gitpro's `forge`, or carry its own small copy.
 4. The CLI's language and floor. gitpro's `release.py` is Python 3.9+, standard library
    plus gitpro.
