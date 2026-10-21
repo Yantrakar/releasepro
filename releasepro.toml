@@ -1,0 +1,18 @@
+# How releasepro releases itself. Spec: docs/spec/00-product.md, section 5.3.
+
+[release]
+repo = "Yantrakar/releasepro"
+version_file = "src/releasepro/VERSION"   # the first word of line 1 is X.Y.Z
+branch = "main"
+workflow = "release.yml"
+preflight = ["gitpro why"]                # must exit 0 before a run starts
+
+[channel.github]
+assets = ["releasepro-{v}-py3-none-any.whl", "releasepro-{v}.tar.gz", "SHA256SUMS", "ANNOUNCEMENT.md"]
+
+[channel.pypi]
+project = "releasepro"
+
+[notes]
+changelog = "CHANGELOG.md"
+summary = "releasepro takes a repo from a version in one file to every channel listing it, in one GitHub Actions run, with a person's yes at each channel's gate and no stored token."

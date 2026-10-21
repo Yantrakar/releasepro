@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "releasepro"
+dynamic = ["version"]
+description = "One gated GitHub Actions release run for any repo: a person's yes per channel, no stored token, every channel checked, the announcement last"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "Yantrakar" }]
+keywords = ["release", "github-actions", "pypi", "trusted-publishing", "vscode-marketplace", "open-vsx", "mcp-registry", "changelog"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Software Distribution",
+]
+dependencies = [
+    "gitpro>=0.4.3,<0.5",
+    "tomli>=1.1; python_version < '3.11'",
+]
+
+[project.urls]
+Homepage = "https://github.com/Yantrakar/releasepro"
+Issues = "https://github.com/Yantrakar/releasepro/issues"
+Changelog = "https://github.com/Yantrakar/releasepro/blob/main/CHANGELOG.md"
+
+[project.scripts]
+releasepro = "releasepro.cli:main"
+
+[tool.hatch.version]
+path = "src/releasepro/VERSION"
+pattern = '\A(?P<version>\d+\.\d+\.\d+)'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/releasepro"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/releasepro", "/README.md", "/LICENSE", "/CHANGELOG.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
