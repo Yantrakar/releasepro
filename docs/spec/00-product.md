@@ -241,8 +241,12 @@ know a release goes through `releasepro run`.
      than 3.11.
 4. The CLI's language and floor: Python, because it imports gitpro. The floor is at
    least gitpro's `requires-python = ">=3.9"`.
-5. Whether to publish the CLI on PyPI, and the listed action on the GitHub Marketplace.
-6. When to create the GitHub repo. It stays local until then.
+5. Publish the CLI on PyPI and the `verify` action on the GitHub Marketplace: **both**,
+   chosen 2026-10-21 ("yes release and claim"). PyPI holds a name only from its first
+   upload; a pending trusted publisher "does not create a project or reserve a project's
+   name until it is actually used to publish" (docs.pypi.org, "Creating a PyPI project with
+   a Trusted Publisher", checked 2026-10-21).
+6. The GitHub repo: created public on 2026-10-21, github.com/Yantrakar/releasepro.
 
 ## 9. Steps
 
