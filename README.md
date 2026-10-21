@@ -91,7 +91,53 @@ Your `release.yml` runs on `workflow_dispatch` on the release branch and has one
 GitHub environment with a required reviewer per channel: `release` for the tag and
 the GitHub release, `pypi`, `marketplace`, `openvsx` and `mcp-registry`. This repo's
 own [release.yml](.github/workflows/release.yml) is a working example with `release`
-and `pypi`. Shared workflows and `releasepro init` come in 0.2.0.
+and `pypi`. Shared workflows and `releasepro init` come in a later release.
+
+## Local mode: Azure Static Web Apps
+
+Some repos cannot have a GitHub environment with a required reviewer, for example a
+private repo on GitHub Free. In local mode releasepro runs every step on your machine,
+and your yes at the terminal is the gate. A release is a commit of the branch, named by
+its full SHA. The spec is [docs/spec/01-local-and-azure.md](docs/spec/01-local-and-azure.md).
+
+```toml
+[release]
+mode = "local"
+version = "commit"
+branch = "main"
+preflight = ["python3 tools/check.py"]
+build = ["python3 tools/build.py"]
+
+[channel.azure-static-web-apps]
+app = "swa-example"
+resource_group = "rg-example"
+subscription = "00000000-0000-0000-0000-000000000000"   # optional
+tenant = "00000000-0000-0000-0000-000000000000"         # optional
+swa_cli = "2.0.10"
+output = "dist"
+headers = { "X-Content-Type-Options" = "nosniff" }
+not_found = ["/staticwebapp.config.json"]
+```
+
+```sh
+releasepro run --dry-run    # check and build, list the files, upload nothing
+releasepro run              # check, build, ask, deploy, verify every host
+releasepro verify [COMMIT]  # every host serves the commit (default HEAD)
+```
+
+`run` builds HEAD in a clean worktree, writes `release.txt` (the commit and the time)
+into the output, shows what goes out and asks `Deploy <sha7> to <app> (production)?`.
+It deploys with the pinned SWA CLI through `npx`, using your own `az login`. releasepro
+never reads the deployment token: the SWA CLI fetches it itself. The release is done only when every host serves
+the new `release.txt` and passes the checks.
+
+What the local gate does not give:
+- **no second person**: whoever runs releasepro approves the deploy;
+- **no audit trail on GitHub**: no deployment record, no record of who approved and
+  when. The only record is `release.txt` on the site.
+
+A repo that can have a GitHub environment with a required reviewer should use github
+mode. Local mode has no `version` and no `notes` command.
 
 ## In a workflow: the `verify` action
 

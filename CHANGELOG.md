@@ -3,6 +3,25 @@
 All notable changes to releasepro. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.2.0 (2026-10-21)
+
+### Added
+
+- `mode = "local"` with `version = "commit"` in `releasepro.toml`: releasepro
+  runs every step on your machine, and your yes at the terminal is the gate.
+  A release is a commit, named by its full SHA. It is for repos that cannot
+  have a GitHub environment with a required reviewer. It gives no second
+  person and no audit trail on GitHub.
+- The `azure-static-web-apps` channel. `releasepro run` checks git and your
+  `az login`, builds HEAD in a clean worktree, writes `release.txt` into the
+  output, asks, deploys with the pinned SWA CLI 2.0.10 and checks that every
+  host serves the commit. releasepro never reads the deployment token: the
+  SWA CLI fetches it itself through your `az login`.
+- `releasepro run --dry-run` in local mode checks and builds, lists the files
+  and uploads nothing.
+- `releasepro verify [COMMIT]` in local mode checks that every host serves
+  the commit (HEAD by default), with `--wait` and `--json`.
+
 ## 0.1.0 (2026-10-21)
 
 ### Added
