@@ -166,8 +166,13 @@ names_version = '"softwareVersion": "{v}"'   # what the page must contain
 - Every command has `--json`.
 - Exit codes: 0 done, 1 a check failed or a job failed, 2 usage or setup error, 130
   stopped.
-- The gh account: `--as LOGIN`, without switching the global gh account. gitpro does this
-  in `forge.run` and `gh_env`. How releasepro does it is decision 3 in section 8.
+- The gh account: `--as LOGIN`, without switching the global gh account, through gitpro's
+  `forge` (decision 3). Every gh call goes through `forge.run(Account("github.com", "gh",
+  LOGIN), …)`, as in gitpro's `release.py`:
+  - `forge.gh_env` runs `gh auth token -u LOGIN -h HOST` (gh 2.40 or newer);
+  - the token goes only into the child process's environment;
+  - every printed line passes through `forge.redact` and `forge.safe`.
+  The default preflight is `gitpro why`, so a release commit has the expected identity.
 
 ### 5.5 A listed action (`action.yml` at the root)
 
@@ -225,9 +230,17 @@ know a release goes through `releasepro run`.
    software, is Dead, Cancelled. Serial 50160335, RELEASEPRO for massage apparatus
    (class 10), is live and pending.
 2. License: **MIT**, chosen 2026-10-21, as gitpro.
-3. The gh account: depend on gitpro's `forge`, or carry its own small copy.
-4. The CLI's language and floor. gitpro's `release.py` is Python 3.9+, standard library
-   plus gitpro.
+3. The gh account: **depend on gitpro**, chosen 2026-10-21 ("add gitpro as dependency.
+   that is better for our product"). So:
+   - gitpro must treat what releasepro imports as a public API, with a test in gitpro that
+     fails when it changes: `forge.Account`, `forge.GITHUB`, `forge.run`, `forge.redact`,
+     `forge.safe` and `config.ConfigError`;
+   - releasepro declares a gitpro version range. Its lower bound is the first release
+     whose `forge.run` takes `stdin` as `release.py` uses it (to check);
+   - gitpro's own dependencies come along: `rich>=13`, and `tomli>=1.1` on Python older
+     than 3.11.
+4. The CLI's language and floor: Python, because it imports gitpro. The floor is at
+   least gitpro's `requires-python = ">=3.9"`.
 5. Whether to publish the CLI on PyPI, and the listed action on the GitHub Marketplace.
 6. When to create the GitHub repo. It stays local until then.
 
