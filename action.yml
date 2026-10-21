@@ -1,0 +1,42 @@
+name: releasepro verify
+description: Passes once every channel in releasepro.toml lists the version; fails if one does not by the end of the wait
+author: Yantrakar
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  version:
+    description: X.Y.Z to check; empty means the version in the version file
+    required: false
+    default: ""
+  config:
+    description: Path to releasepro.toml in the checkout
+    required: false
+    default: releasepro.toml
+  wait-minutes:
+    description: How long to wait for the channels that list a version late
+    required: false
+    default: "20"
+
+runs:
+  using: composite
+  steps:
+    # releasepro from this action's own ref, in a venv of its own: the job's Python is left alone.
+    - name: Install releasepro
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        python3 -m venv "$RUNNER_TEMP/releasepro"
+        "$RUNNER_TEMP/releasepro/bin/pip" install --quiet "$ACTION_PATH"
+    # gh reads the job's token from GH_TOKEN to see the GitHub release; releasepro never reads it.
+    - name: Verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
+        CONFIG: ${{ inputs.config }}
+        WAIT: ${{ inputs.wait-minutes }}
+      run: |
+        "$RUNNER_TEMP/releasepro/bin/releasepro" verify ${VERSION:+"$VERSION"} -c "$CONFIG" --wait "$WAIT"
