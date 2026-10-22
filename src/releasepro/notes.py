@@ -13,6 +13,9 @@ from .config import Config, SetupError
 HEADING_RE = re.compile(r"## +\[?(\d+\.\d+\.\d+)\]?(?:[\s(\-]|$)")
 FENCE_RE = re.compile(r"\s*(```|~~~)")
 NOT_AN_END = ("e.g.", "i.e.")
+CODE_RE = re.compile(r"(`[^`]*`)")
+# [text](url), ![alt](url) and [text](url "title"); the url may hold one level of ( )
+LINK_RE = re.compile(r'!?\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\)')
 
 
 class NotesError(Exception):
@@ -90,6 +93,13 @@ def first_sentence(text: str) -> str:
     return text.strip()
 
 
+def plain(text: str) -> str:
+    """text with each Markdown link or image reduced to its text, for the short post; `code` is kept as
+    written."""
+    parts = CODE_RE.split(text)
+    return "".join(p if i % 2 else LINK_RE.sub(r"\1", p) for i, p in enumerate(parts))
+
+
 def release_url(cfg: Config, v: str) -> str:
     return f"https://github.com/{cfg.repo}/releases/tag/{cfg.tag_of(v)}"
 
@@ -117,7 +127,8 @@ def release_notes(cfg: Config, v: str) -> str:
 
 def short_text(cfg: Config, v: str) -> str:
     """At most [notes] short_limit characters, links in full: the name and version, as many whole first
-    sentences of the changelog's bullets as fit, in order, and the release's link."""
+    sentences of the changelog's bullets as fit, in order, and the release's link. Plain text: a Markdown
+    link keeps its text only."""
     limit = cfg.notes.short_limit
     head, url = f"{cfg.name} {v}:", release_url(cfg, v)
     if len(f"{head} {url}") > limit:
@@ -125,7 +136,7 @@ def short_text(cfg: Config, v: str) -> str:
     taken: List[str] = []
     for _, items in bullets(section(cfg, v)):
         for item in items:
-            s = first_sentence(item)
+            s = first_sentence(plain(item))
             if len(" ".join([head, *taken, s, url])) <= limit:
                 taken.append(s)
     return " ".join([head, *taken, url])

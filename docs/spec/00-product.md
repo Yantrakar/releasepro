@@ -249,6 +249,8 @@ The two files `notes --write DIR` writes:
 | `RELEASE_NOTES.md` | the changelog section as written, then a "Get it" list with one line per channel that is on | the body of the GitHub release (`gh release create --notes-file`) |
 | `ANNOUNCEMENT.md` | a draft post: a short text of at most `[notes] short_limit` characters (280 by default, every character counted, links in full) and a long text | a release asset |
 
+The short text is plain text for a post: a Markdown link or image in a changelog sentence keeps its text and drops its URL (`[name](url)` becomes `name`). The long text keeps the sentence as written.
+
 The announcement is built from:
 - `[notes] summary`, one line the owner writes about the project;
 - the first sentence of each top-level bullet in the changelog section, in order, under
