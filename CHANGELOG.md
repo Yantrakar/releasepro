@@ -3,6 +3,14 @@
 All notable changes to releasepro. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.2.1 (2026-10-22)
+
+### Fixed
+
+- The short announcement is plain text: a Markdown link in a changelog
+  sentence keeps its text and drops its URL, so `[name](url)` no longer shows
+  in a post. The long announcement and the release notes keep the link.
+
 ## 0.2.0 (2026-10-21)
 
 ### Added
