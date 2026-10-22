@@ -150,6 +150,30 @@ def test_the_short_text_takes_whole_first_sentences_that_fit(repo):
     assert len(short) <= 100 and short == f"tool 1.2.0: `tool run` starts the run. {url}"
 
 
+@pytest.mark.parametrize("text, plain", [
+    ("[releasepro](https://example.com/releasepro) runs it.", "releasepro runs it."),
+    ("See ![logo](https://example.com/l.png) and [the guide](https://example.com/g \"Guide\").",
+     "See logo and the guide."),
+    ("[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) is long.", "Foo is long."),
+    ("`[not](a link)` stays? No: [x](y) and [kept] [also kept](no url", "`[not](a link)` stays? No: x and [kept] [also kept](no url"),
+    ("No link here.", "No link here."),
+    ("so `[name](url)` no longer shows, [x](y)", "so `[name](url)` no longer shows, x"),
+])
+def test_plain_keeps_a_links_text_only(text, plain):
+    assert notes.plain(text) == plain
+
+
+def test_the_short_text_drops_link_urls_and_the_long_text_keeps_them(repo):
+    log = repo / "CHANGELOG.md"
+    log.write_text(log.read_text(encoding="utf-8").replace(
+        "- A crash on an empty file.", "- A crash in [the parser](https://example.com/parser). Fixed."),
+        encoding="utf-8")
+    cfg = load(repo)
+    short = notes.short_text(cfg, "1.2.0")
+    assert "A crash in the parser. " in short and "example.com" not in short
+    assert "- A crash in [the parser](https://example.com/parser).\n" in notes.long_text(cfg, "1.2.0")
+
+
 def test_the_short_text_never_passes_the_limit(repo):
     for limit in range(70, 200):
         cfg = load(repo, f"short_limit = {limit}")
