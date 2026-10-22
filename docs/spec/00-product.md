@@ -370,3 +370,26 @@ releasepro itself. The owner asked for "a functional version as it is today"
 
 Left for a later release: `init`, `doctor`, the shared channel workflows (section 5.1),
 the template (section 5.2), and gitpro switching to releasepro (section 9, step 5).
+
+### 0.2.2
+
+0.2.2 fixes what the first gitpro release through releasepro (0.4.4, 2026-10-22) and
+`verify 0.4.3` ran into:
+- `verify` looks at the MCP Registry the way it looks at the late channels: every 30 s
+  for up to 20 minutes. Once, it did not find a version it found on the next run, and
+  `verify 0.4.3` failed (2026-10-22).
+- A gate answered on the run's page while `run` asks about it: GitHub refuses the
+  approval with "No pending deployment requests", and `run` stopped (2026-10-22). Now,
+  when an approval fails, `run` reads the pending gates again. If the gate is no longer
+  pending, it says the gate was answered elsewhere and goes on following the run, which
+  reports that job's result like any other. Otherwise it stops with the error, as
+  before. It never sends a second approval for that gate.
+- A failed job names its own log. `gh run view RUN --log-failed` answers only once the
+  whole run is complete, and a run that waits at another gate is not complete. The
+  message gives the job's page and `gh api repos/OWNER/REPO/actions/jobs/ID/logs`, which
+  works while the run waits, then `gh run view RUN --log-failed` for after the run.
+- When the Open VSX job fails, the message adds that Open VSX matches a trusted
+  publisher by the repository's id and its owner's id (section 4), so a repository
+  deleted and created again needs its trusted publisher registered again. gitpro's
+  recreated repository hit this on 2026-10-22: "No trusted publisher matches the
+  presented token".

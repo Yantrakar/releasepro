@@ -1,3 +1,4 @@
+0.2.2  2026-10-22  verify waits for the MCP Registry; gates answered on the page
 0.2.1  2026-10-22  plain links in the short announcement
 0.2.0  2026-10-21  local mode and Azure Static Web Apps
 0.1.0  2026-10-21  first release: run, verify and notes

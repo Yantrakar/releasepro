@@ -29,6 +29,7 @@ from .config import Config, fill
 MARKETPLACE_QUERY = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 REGISTRY = "https://registry.modelcontextprotocol.io"
 OPENVSX = "https://open-vsx.org/api"
+OPENVSX_PUBLISHERS = "https://open-vsx.org/user-settings/trusted-publishers"
 COMMENT = "releasepro"        # on each approval
 
 POLL = 15                 # seconds between looks at the run
@@ -394,8 +395,19 @@ def approve(cfg: Config, acc: forge.Account, run_id: int, gate: dict, v: str, ye
         raise Stop(f"not approved; the run waits at {run_url(cfg, run_id)} (finish it there, "
                    f"or later with --run {run_id})", 0)
     body = {"environment_ids": [gate["environment"]["id"]], "state": "approved", "comment": COMMENT}
-    gh_ok(acc, ["api", "-X", "POST", f"repos/{cfg.repo}/actions/runs/{run_id}/pending_deployments", "--input", "-"],
-          f"approving {env}", stdin=json.dumps(body))
+    try:
+        r = gh(acc, ["api", "-X", "POST", f"repos/{cfg.repo}/actions/runs/{run_id}/pending_deployments",
+                     "--input", "-"], json.dumps(body))
+    except ConfigError as e:
+        raise Stop(str(e)) from None
+    if r.returncode != 0:
+        # answered on the run's page while we asked: GitHub says "No pending deployment requests"
+        pending = gh_json(acc, ["api", f"repos/{cfg.repo}/actions/runs/{run_id}/pending_deployments"],
+                          "pending deployments")
+        if any(g["environment"]["name"] == env for g in pending):
+            raise Stop(f"approving {env}: {why_failed(r)}")
+        say(f"– {env} was answered on the run's page meanwhile; following the run")
+        return
     say(f"✓ approved {env}")
 
 
@@ -448,6 +460,22 @@ class Progress:
             self.line("… still waiting on " + ", ".join(busy) if busy else "… waiting for the next job to start")
 
 
+def failed_job(cfg: Config, run_id: int, job: dict) -> str:
+    """What to do about a failed job: its page, its log now and once the run is complete, and for Open VSX
+    the cause of a token it refused."""
+    name = job.get("name") or "?"
+    lines = [f"job {name} {job.get('conclusion')}: {job.get('url') or run_url(cfg, run_id)}"]
+    if job.get("databaseId"):
+        lines.append(f"  its log, while the run goes on: gh api repos/{cfg.repo}/actions/jobs/{job['databaseId']}/logs")
+    lines.append(f"  once the run is complete: gh run view {run_id} -R {cfg.repo} --log-failed")
+    if cfg.openvsx and name.split(" / ")[0] == cfg.openvsx.job:
+        lines.append("  If Open VSX said \"No trusted publisher matches the presented token\": it matches the "
+                     "repository's id and its owner's id, so a repository deleted and created again needs its "
+                     f"trusted publisher registered again at {OPENVSX_PUBLISHERS}")
+    lines.append("Fix it, then run releasepro run again: it offers to re-run the failed jobs.")
+    return "\n".join(lines)
+
+
 def follow(cfg: Config, acc: forge.Account, run_id: int, v: str, yes: bool) -> List[dict]:
     """Until the run succeeds, or Stop; returns its jobs."""
     approved: set = set()
@@ -459,9 +487,7 @@ def follow(cfg: Config, acc: forge.Account, run_id: int, v: str, yes: bool) -> L
         progress.update(jobs)
         for job in jobs:
             if job.get("conclusion") in FAILED:
-                raise Stop(f"job {job.get('name')} {job['conclusion']}: {run_url(cfg, run_id)}\n"
-                           f"  gh run view {run_id} -R {cfg.repo} --log-failed\n"
-                           "Fix it, then run releasepro run again: it offers to re-run the failed jobs.")
+                raise Stop(failed_job(cfg, run_id, job))
         if run.get("status") == "completed":
             if run.get("conclusion") == "success":
                 return jobs
@@ -489,9 +515,9 @@ def release_assets(cfg: Config, acc: Optional[forge.Account], v: str) -> Optiona
 
 def checks(cfg: Config, acc: Optional[forge.Account], v: str, openvsx: bool,
            wait: float = LATE_WAIT) -> List[Tuple[str, Optional[bool]]]:
-    """(what, True | False | None for not checked) for every channel that is on. The Marketplace, Open VSX
-    and the site show a version minutes after it is published, so they are looked at every LATE_POLL
-    seconds, for up to `wait`. Open VSX is checked only when `openvsx` (its job published)."""
+    """(what, True | False | None for not checked) for every channel that is on. The MCP Registry, the
+    Marketplace, Open VSX and the site can show a version minutes after it is published, or miss it on one
+    look, so they are looked at every LATE_POLL seconds, for up to `wait`. Open VSX is checked only when `openvsx` (its job published)."""
     out: List[Tuple[str, Optional[bool]]] = []
     if cfg.pypi:
         p = cfg.pypi
@@ -507,10 +533,10 @@ def checks(cfg: Config, acc: Optional[forge.Account], v: str, openvsx: bool,
     want = {fill(a, v) for a in cfg.assets}
     out.append((f"the GitHub release {tag} " + (f"has {', '.join(sorted(want))}" if want else "exists"),
                 names is not None and want <= names))
-    if cfg.mcp_registry:
-        status, _ = http(f"{REGISTRY}/v0.1/servers/{urllib.parse.quote(cfg.mcp_registry, safe='')}/versions/{v}")
-        out.append((f"the MCP Registry has {cfg.mcp_registry} {v}", status == 200))
     late: List[Tuple[str, Optional[Callable[[], bool]]]] = []     # no look: not checked
+    if cfg.mcp_registry:
+        server = f"{REGISTRY}/v0.1/servers/{urllib.parse.quote(cfg.mcp_registry, safe='')}/versions/{v}"
+        late.append((f"the MCP Registry has {cfg.mcp_registry} {v}", lambda: http(server)[0] == 200))
     if cfg.marketplace:
         ext = cfg.marketplace.extension
         late.append((f"the Marketplace lists {v}", lambda: v in (marketplace_versions(ext) or [])))

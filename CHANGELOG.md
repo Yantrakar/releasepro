@@ -3,6 +3,20 @@
 All notable changes to releasepro. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.2.2 (2026-10-22)
+
+### Fixed
+
+- `releasepro verify` looks at the MCP Registry again for up to 20 minutes,
+  like the Marketplace, Open VSX and the site, instead of failing on its first
+  answer.
+- `releasepro run` goes on when a gate it asks about is answered on the run's
+  page meanwhile, instead of stopping with "No pending deployment requests".
+- A failed job's message names a log command that works while the run still
+  waits at another gate.
+- When the Open VSX job fails, the message says that a repository deleted and
+  created again needs its Open VSX trusted publisher registered again.
+
 ## 0.2.1 (2026-10-22)
 
 ### Fixed

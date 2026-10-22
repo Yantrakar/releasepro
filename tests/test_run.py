@@ -107,6 +107,7 @@ class World:
         self.run_info = {"workflowName": "Release", "headBranch": "main", "headSha": HEAD}
         self.attempt = 1
         self.rerun_steps = None               # the run's steps after `gh run rerun --failed`
+        self.post_error = None                # an approval GitHub refuses, with this stderr
 
     # -- seams
     def cmd(self, argv, cwd=None):
@@ -156,6 +157,9 @@ class World:
         if argv[:1] == ["api"] and re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs/\d+", argv[1]):
             return cp(json.dumps({"run_attempt": self.attempt}))
         if argv[:3] == ["api", "-X", "POST"]:
+            if self.post_error:
+                self.events.append(("post failed", json.loads(stdin)))
+                return cp(rc=1, err=self.post_error)
             self.events.append(("post", json.loads(stdin)))
             return cp()
         if argv[:1] == ["api"] and argv[1].endswith("/pending_deployments"):
@@ -943,3 +947,66 @@ def test_verify_without_as_uses_gh_as_it_is_set_up(world, monkeypatch, capsys):
     world.on_pypi, world.market, world.openvsx = True, [V], [V]
     assert cli.main(["verify", V, "-c", str(CONFIG_PATH[0]), "--wait", "0"]) == 0
     assert seen and all(a is None for a in seen)
+
+
+# ------------------------------------------------------------------ 0.2.2
+
+NO_PENDING = "gh: No pending deployment requests to approve or reject (HTTP 422)"
+
+
+def test_a_gate_answered_on_the_page_meanwhile_is_followed_not_stopped(world, capsys):
+    """The person approved on the run's page while run asked: the approval is refused, the gate is
+    no longer pending, so run says so and follows the run to its end."""
+    world.on_pypi, world.market = True, [V]
+    world.post_error = NO_PENDING
+    world.steps = [
+        ({"status": "in_progress", "conclusion": "", "jobs": []}, [gate("release")]),
+        ({"status": "in_progress", "conclusion": "", "jobs": []}, []),       # read again after the refusal
+        ({"status": "completed", "conclusion": "success", "jobs": [done("github"), UNSET, done("pypi")]}, []),
+    ]
+    assert release("--run", "42", "--yes") == 0
+    assert [e[0] for e in world.events if e[0].startswith("post")] == ["post failed"]
+    assert "release was answered on the run's page meanwhile" in capsys.readouterr().out
+
+
+def test_a_refused_approval_of_a_gate_still_pending_stops(world, capsys):
+    world.post_error = "gh: Server Error (HTTP 502)"
+    world.steps = [({"status": "in_progress", "conclusion": "", "jobs": []}, [gate("release")])]
+    assert release("--run", "42", "--yes") == 1
+    assert world.posts() == []
+    assert "approving release: gh: Server Error (HTTP 502)" in capsys.readouterr().err
+
+
+def test_a_failed_job_names_a_log_that_works_while_the_run_waits(world, capsys):
+    failed = {"name": "pypi", "status": "completed", "conclusion": "failure", "databaseId": 99,
+              "url": "https://github.com/o/r/actions/runs/42/job/99"}
+    world.steps = [({"status": "in_progress", "conclusion": "", "jobs": [failed]}, [gate("mcp-registry")])]
+    assert release("--run", "42", "--yes") == 1
+    err = capsys.readouterr().err
+    assert "job pypi failure: https://github.com/o/r/actions/runs/42/job/99" in err
+    assert "gh api repos/Yantrakar/gitpro/actions/jobs/99/logs" in err and "--log-failed" in err
+    assert "trusted publisher" not in err
+
+
+def test_a_failed_open_vsx_job_says_a_recreated_repo_needs_its_publisher_again(world, capsys):
+    failed = {"name": "openvsx", "status": "completed", "conclusion": "failure", "databaseId": 98}
+    world.steps = [({"status": "in_progress", "conclusion": "", "jobs": [failed]}, [])]
+    assert release("--run", "42", "--yes") == 1
+    err = capsys.readouterr().err
+    assert "No trusted publisher matches the presented token" in err
+    assert "deleted and created again" in err and rel.OPENVSX_PUBLISHERS in err
+
+
+def test_verify_looks_at_the_mcp_registry_again_until_it_lists_the_version(world, monkeypatch, capsys):
+    real, looks = world.http, []
+
+    def http(url, *a):
+        if url.startswith(rel.REGISTRY):
+            looks.append(url)
+            return (404, "") if len(looks) < 3 else (200, "{}")
+        return real(url, *a)
+    monkeypatch.setattr(rel, "http", http)
+    world.on_pypi, world.market, world.openvsx = True, [V], [V]
+    assert cli.main(["verify", "-c", str(CONFIG_PATH[0]), "--as", LOGIN, V]) == 0
+    out = capsys.readouterr().out
+    assert len(looks) == 3 and f"✓ the MCP Registry has {MCP_NAME} {V}" in out

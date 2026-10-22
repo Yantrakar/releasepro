@@ -38,8 +38,8 @@ failed, 2 setup error, 130 stopped.
 releasepro verify X.Y.Z --json
 ```
 
-It changes nothing. It waits up to 20 minutes (`--wait MINUTES`) for the Marketplace,
-Open VSX and the site, which list a version minutes late.
+It changes nothing. It waits up to 20 minutes (`--wait MINUTES`) for the MCP Registry, the
+Marketplace, Open VSX and the site, which can list a version minutes late.
 
 ## Release notes and the announcement
 
